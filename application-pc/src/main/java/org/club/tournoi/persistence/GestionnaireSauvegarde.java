@@ -8,9 +8,13 @@ import java.io.Reader;
 import java.io.Writer;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -23,6 +27,9 @@ import java.util.stream.Stream;
  * Le seul point technique est le polymorphisme de {@link Match} : comme c'est une
  * interface avec deux implementations, on enregistre un adaptateur qui ecrit le type
  * concret dans le JSON et sait le relire.
+ * <p>
+ * Toutes les ecritures sont atomiques (fichier temporaire puis renommage) : une coupure de
+ * courant ou un arret brutal pendant une sauvegarde laisse intact le fichier precedent.
  */
 public class GestionnaireSauvegarde {
 
@@ -47,14 +54,9 @@ public class GestionnaireSauvegarde {
         Files.createDirectories(dossier);
     }
 
-    /** Liste les fichiers de sauvegarde disponibles (tries par nom). */
+    /** Liste les fichiers de sauvegarde disponibles, le plus recemment modifie en premier. */
     public List<Path> listerSauvegardes() throws IOException {
-        if (!Files.isDirectory(dossier)) {
-            return List.of();
-        }
-        try (Stream<Path> flux = Files.list(dossier)) {
-            return flux.filter(p -> p.toString().endsWith(EXTENSION)).sorted().toList();
-        }
+        return listerJson(dossier);
     }
 
     public Path cheminPour(String nom) {
@@ -63,9 +65,47 @@ public class GestionnaireSauvegarde {
     }
 
     public void sauvegarder(EtatTournoi etat, Path fichier) throws IOException {
-        Files.createDirectories(fichier.getParent());
-        try (Writer w = Files.newBufferedWriter(fichier, StandardCharsets.UTF_8)) {
-            gson.toJson(etat, w);
+        ecrireAtomique(fichier, etat);
+    }
+
+    /**
+     * Ecrit un objet en JSON sans jamais laisser de fichier a moitie ecrit : on ecrit d'abord
+     * dans un fichier temporaire du meme dossier, puis on le renomme a la place de l'ancien.
+     */
+    private void ecrireAtomique(Path fichier, Object contenu) throws IOException {
+        Path cible = fichier.toAbsolutePath();
+        Files.createDirectories(cible.getParent());
+        Path temporaire = cible.resolveSibling(cible.getFileName() + ".tmp");
+        try (Writer w = Files.newBufferedWriter(temporaire, StandardCharsets.UTF_8)) {
+            gson.toJson(contenu, w);
+        }
+        try {
+            Files.move(temporaire, cible, StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            // Systeme de fichiers sans renommage atomique : remplacement simple.
+            Files.move(temporaire, cible, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /** Fichiers .json d'un dossier, le plus recemment modifie en premier. */
+    private static List<Path> listerJson(Path dossierJson) throws IOException {
+        if (!Files.isDirectory(dossierJson)) {
+            return List.of();
+        }
+        try (Stream<Path> flux = Files.list(dossierJson)) {
+            return flux.filter(p -> p.toString().endsWith(EXTENSION))
+                    .sorted(Comparator.comparing(GestionnaireSauvegarde::dateModification).reversed()
+                            .thenComparing(Comparator.naturalOrder()))
+                    .toList();
+        }
+    }
+
+    private static FileTime dateModification(Path p) {
+        try {
+            return Files.getLastModifiedTime(p);
+        } catch (IOException e) {
+            return FileTime.fromMillis(0);
         }
     }
 
@@ -92,10 +132,7 @@ public class GestionnaireSauvegarde {
 
     /** Sauvegarde la base joueurs permanente dans son propre fichier JSON. */
     public void sauvegarderBaseJoueurs(BaseJoueurs base, Path fichier) throws IOException {
-        Files.createDirectories(fichier.getParent());
-        try (Writer w = Files.newBufferedWriter(fichier, StandardCharsets.UTF_8)) {
-            gson.toJson(base, w);
-        }
+        ecrireAtomique(fichier, base);
     }
 
     /**
@@ -114,14 +151,9 @@ public class GestionnaireSauvegarde {
         }
     }
 
-    /** Liste les bases joueurs disponibles (fichiers .json d'un dossier). */
+    /** Liste les bases joueurs disponibles, la plus recemment modifiee en premier. */
     public List<Path> listerBasesJoueurs(Path dossierBases) throws IOException {
-        if (!Files.isDirectory(dossierBases)) {
-            return List.of();
-        }
-        try (Stream<Path> flux = Files.list(dossierBases)) {
-            return flux.filter(p -> p.toString().endsWith(EXTENSION)).sorted().toList();
-        }
+        return listerJson(dossierBases);
     }
 
     /**

@@ -2,6 +2,7 @@ package org.club.tournoi.ui;
 
 import org.club.tournoi.model.EtatTournoi;
 import org.club.tournoi.model.BaseJoueurs;
+import org.club.tournoi.persistence.DossierDonnees;
 import org.club.tournoi.persistence.GestionnaireSauvegarde;
 import org.club.tournoi.service.ServiceTournoi;
 import org.club.tournoi.ui.panel.*;
@@ -17,14 +18,21 @@ import java.nio.file.Paths;
  * Point d'entree de l'application.
  * <p>
  * Enchaine : ecran de demarrage &rarr; chargement ou creation de l'etat &rarr; configuration
- * des tables &rarr; fenetre principale a onglets. La sauvegarde de l'etat complet (y compris
- * rencontres et tables) est proposee a la fermeture, ce qui permet de reprendre un tournoi
- * en cours.
+ * des tables &rarr; fenetre principale a onglets.
+ * <p>
+ * Le tournoi (rencontres et tables comprises) et la base joueurs sont sauvegardes
+ * automatiquement apres chaque modification et a la fermeture ({@link SauvegardeAutomatique}),
+ * dans un dossier fixe ({@link DossierDonnees}) : on peut fermer le logiciel a tout moment et
+ * reprendre le tournoi plus tard, depuis n'importe quel dossier de lancement.
  */
 public class Application {
 
-    private static final Path DOSSIER_SAUVEGARDES = Paths.get("Base_Tournoi");
-    private static final Path DOSSIER_BASES = Paths.get("Base_Joueur");
+    private static final Path RACINE_DONNEES = DossierDonnees.racine();
+    private static final Path DOSSIER_SAUVEGARDES = RACINE_DONNEES.resolve(DossierDonnees.SOUS_DOSSIER_TOURNOIS);
+    private static final Path DOSSIER_BASES = RACINE_DONNEES.resolve(DossierDonnees.SOUS_DOSSIER_JOUEURS);
+
+    /** Sauvegarde automatique du tournoi ouvert (creee a l'ouverture de la fenetre). */
+    private static SauvegardeAutomatique sauvegardeAuto;
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(Application::demarrer);
@@ -32,6 +40,9 @@ public class Application {
 
     private static void demarrer() {
         appliquerLookAndFeel();
+
+        // Recupere les donnees laissees dans le dossier de lancement par l'ancienne version.
+        DossierDonnees.migrerAnciensDossiers(Paths.get(""), RACINE_DONNEES);
 
         GestionnaireSauvegarde gestionnaire = new GestionnaireSauvegarde(DOSSIER_SAUVEGARDES);
         DialogueDemarrage demarrage = new DialogueDemarrage(gestionnaire, DOSSIER_BASES);
@@ -97,7 +108,8 @@ public class Application {
 
     private static void ouvrirFenetre(ServiceTournoi service, GestionnaireSauvegarde gestionnaire,
                                       DialogueDemarrage.Resultat choix) {
-        JFrame frame = new JFrame("Tournoi - " + choix.fichier().getFileName());
+        JFrame frame = new JFrame("Tournoi - " + choix.fichier().getFileName()
+                + "   (sauvegarde automatique dans " + RACINE_DONNEES + ")");
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
         JTabbedPane onglets = new JTabbedPane();
@@ -127,13 +139,18 @@ public class Application {
         frame.setSize(1100, 720);
         frame.setLocationRelativeTo(null);
 
+        sauvegardeAuto = new SauvegardeAutomatique(service, gestionnaire,
+                choix.fichier(), choix.baseJoueurs(), frame);
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override public void windowClosing(java.awt.event.WindowEvent e) {
-                fermer(frame, service, gestionnaire, choix.fichier(), choix.baseJoueurs());
+                fermer(frame);
             }
         });
 
         frame.setVisible(true);
+        // Premiere ecriture tout de suite : le tournoi et la base existent sur le disque des
+        // l'ouverture (et les reglages choisis au demarrage sont conserves).
+        sauvegardeAuto.planifier();
     }
 
     /** Fenetre d'affichage public unique : si elle existe deja, on la ramene au premier plan. */
@@ -220,26 +237,20 @@ public class Application {
         fenetrePublique.setVisible(true);
     }
 
-    private static void fermer(JFrame frame, ServiceTournoi service,
-                               GestionnaireSauvegarde gestionnaire, Path fichier, Path baseFichier) {
-        int reponse = JOptionPane.showConfirmDialog(frame,
-                "Sauvegarder le tournoi avant de quitter ?", "Quitter",
-                JOptionPane.YES_NO_CANCEL_OPTION);
-        if (reponse == JOptionPane.CANCEL_OPTION) {
-            return;
-        }
-        if (reponse == JOptionPane.YES_OPTION) {
-            try {
-                gestionnaire.sauvegarder(service.getEtat(), fichier);
-                // Sauvegarde aussi la base joueurs permanente (modifs de catégorie, etc.)
-                gestionnaire.sauvegarderBaseJoueurs(service.getBaseJoueurs(), baseFichier);
-            } catch (IOException ex) {
-                int quandMeme = JOptionPane.showConfirmDialog(frame,
-                        "La sauvegarde a echoue :\n" + ex.getMessage() + "\n\nQuitter quand meme ?",
-                        "Erreur de sauvegarde", JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE);
-                if (quandMeme != JOptionPane.YES_OPTION) {
-                    return;
-                }
+    /**
+     * Fermeture : le tournoi et la base joueurs sont toujours enregistres, sans question.
+     * On ne demande quelque chose qu'en cas d'echec de l'ecriture.
+     */
+    private static void fermer(JFrame frame) {
+        try {
+            sauvegardeAuto.sauvegarderMaintenant();
+        } catch (IOException ex) {
+            int quandMeme = JOptionPane.showConfirmDialog(frame,
+                    "La sauvegarde a echoue :\n" + ex.getMessage()
+                            + "\n\nQuitter quand meme (les dernieres modifications seront perdues) ?",
+                    "Erreur de sauvegarde", JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE);
+            if (quandMeme != JOptionPane.YES_OPTION) {
+                return;
             }
         }
         frame.dispose();

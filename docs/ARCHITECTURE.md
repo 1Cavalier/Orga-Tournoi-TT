@@ -59,6 +59,12 @@ se terminer sous peu (durée estimée et seuil réglables).
 
 ### Persistance JSON
 
+Le tournoi et la base joueurs permanente sont deux fichiers séparés, rangés dans un dossier fixe
+(`DossierDonnees`, par défaut `<dossier utilisateur>/Tournoi-TT`). `SauvegardeAutomatique`
+s'abonne au service et écrit les deux fichiers deux secondes après la dernière modification,
+puis à la fermeture. Chaque écriture passe par un fichier temporaire renommé ensuite, pour ne
+jamais laisser une sauvegarde à moitié écrite.
+
 Gson sérialise l'objet `EtatTournoi` complet (joueurs, équipes, tables, rencontres, barrages,
 paramètres). Deux points techniques :
 

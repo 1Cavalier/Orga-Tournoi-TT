@@ -33,7 +33,8 @@ serveur.
 - Classement en direct avec flèches de progression, préparation des départages de fin de
   tournoi (égalités sur le podium, barrages, tirage au sort).
 - Écran d'affichage public pour un second écran ou un projecteur.
-- Sauvegarde et reprise d'un tournoi en cours (JSON).
+- Sauvegarde automatique du tournoi et de la base joueurs après chaque modification et à la
+  fermeture : on peut quitter à tout moment et reprendre le tournoi plus tard (JSON).
 
 **Application capitaines (téléphone)**
 
@@ -161,8 +162,23 @@ Déroulement type d'un tournoi :
    publication. Les capitaines ouvrent `https://votre-site/tournoi/` sur leur téléphone.
 6. Fin de tournoi : préparer les départages, jouer les barrages, afficher le classement final.
 
-Les tournois sont enregistrés dans `Base_Tournoi/` et les bases de joueurs dans `Base_Joueur/`,
-dossiers créés dans le répertoire de lancement. La sauvegarde est proposée à la fermeture.
+Sauvegarde : il n'y a rien à faire. Le tournoi en cours (équipes, rencontres, scores, tables) et
+la base joueurs sont enregistrés automatiquement deux secondes après chaque modification, puis
+à la fermeture. Au lancement suivant, le tournoi et la base les plus récents sont proposés en
+premier sur l'écran de démarrage.
+
+Les données sont rangées dans un dossier fixe, quel que soit le dossier de lancement :
+
+```
+C:\Users\<nom>\Tournoi-TT\
+├── Base_Tournoi\    un fichier .json par tournoi
+└── Base_Joueur\     un fichier .json par base de joueurs
+```
+
+Pour utiliser un autre dossier (par exemple sur une clé USB), ajouter
+`-Dtournoi.donnees=E:\Tournoi-TT` juste après `java`. Les dossiers `Base_Tournoi` et
+`Base_Joueur` d'une ancienne version, présents dans le dossier de lancement, sont recopiés
+automatiquement au premier démarrage (sans rien écraser).
 
 ## Captures d'écran et résultats
 
@@ -174,9 +190,9 @@ la salle, de l'affichage public et de l'écran capitaine sur téléphone, puis l
 ![Application capitaines](docs/screenshots/capitaine-mobile.png)
 -->
 
-Tests automatisés (`mvn test`, 14 tests) : validation des scores, cycle complet d'une
+Tests automatisés (`mvn test`, 18 tests) : validation des scores, cycle complet d'une
 rencontre, refus des revanches, classement, sauvegarde et reprise d'un tournoi en cours,
-comparaison des saisies des capitaines.
+base joueurs, comparaison des saisies des capitaines.
 
 ## Notes sur cette version (corrections apportées)
 
@@ -190,6 +206,12 @@ comparaison des saisies des capitaines.
   du score sont contrôlés. Les sessions expirées sont purgées à chaque connexion.
 - Synchronisation : une saisie avec un index de match invalide faisait échouer chaque cycle et
   bloquait toute la publication. Elle est maintenant ignorée et purgée.
+- Sauvegarde : auparavant, répondre « Non » à la question posée à la fermeture faisait aussi
+  perdre la base joueurs, et les données étaient rangées dans le dossier de lancement (relancer
+  depuis un autre dossier donnait l'impression de tout avoir perdu). Le tournoi et la base sont
+  désormais sauvegardés automatiquement, dans un dossier fixe, avec une écriture atomique qui
+  protège des coupures pendant l'enregistrement. Créer un nouveau tournoi sous un nom déjà pris
+  demande confirmation.
 - Compilation sans Maven : le script copie les ressources, sinon l'image du plan de salle
   manquait.
 - Réorganisation du dépôt (`application-pc/`, `serveur/`, `docs/`), renommage de `ClientOvh`

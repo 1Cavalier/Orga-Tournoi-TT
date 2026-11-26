@@ -353,6 +353,18 @@ public class DialogueDemarrage extends JDialog {
                 erreur("Donnez un nom au nouveau tournoi.");
                 return;
             }
+            // La sauvegarde etant automatique, un nom deja pris ecraserait l'ancien tournoi
+            // des la premiere modification : on demande confirmation.
+            if (java.nio.file.Files.exists(gestionnaire.cheminPour(nom))) {
+                int choix = JOptionPane.showConfirmDialog(this,
+                        "Un tournoi nomme \"" + nom + "\" existe deja.\n"
+                                + "Le remplacer par un tournoi vide ?\n\n"
+                                + "(Pour le reprendre, choisissez plutot \"Ouvrir un tournoi existant\".)",
+                        "Tournoi existant", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choix != JOptionPane.YES_OPTION) {
+                    return;
+                }
+            }
             boolean pointEcart2 = comboPoints.getSelectedIndex() == 0;
             resultat = new Resultat(gestionnaire.cheminPour(nom), false, lignes, colonnes, pointEcart2,
                     coinChoisi(), baseChemin, baseExistante, format);
