@@ -1,0 +1,5 @@
+# Scripts Windows : fins de ligne CRLF
+*.bat text eol=crlf
+# Binaires
+*.jar binary
+*.png binary

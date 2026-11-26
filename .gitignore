@@ -1,0 +1,23 @@
+# --- Secrets : ne JAMAIS committer ---
+config.php
+**/config.php
+
+# --- Données locales (tournois et bases de joueurs créées à l'usage) ---
+**/Base_Tournoi/
+**/Base_Joueur/
+
+# --- Compilation Java ---
+build/
+out/
+target/
+*.class
+
+# --- IDE / OS ---
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.DS_Store
+Thumbs.db

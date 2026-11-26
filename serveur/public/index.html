@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<!--
+  Application capitaines : page web autonome (HTML/CSS/JS, sans dépendance),
+  ouverte sur le téléphone de chaque capitaine d'équipe.
+  - Se connecte via api.php (action login) et conserve un jeton de session.
+  - Relit toutes les PERIODE_MS millisecondes l'état publié par le PC (clé "etat").
+  - Permet de saisir le score de chaque match de la rencontre en cours ; le PC
+    compare ensuite les saisies des deux capitaines (accord ou litige).
+  Le nom du club affiché se règle avec la constante NOM_CLUB ci-dessous.
+-->
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Espace capitaine</title>
+<style>
+  :root{--vert:#3b82f6;--vert-fonce:#2563eb;--bleu:#2563eb;--rouge:#E24B4A;--gris:#6b7280;--fond:#f4f6f8;--carte:#ffffff;--texte:#1f2937;--bord:#e5e7eb;--bleu-doux:#eff6ff}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fond);color:var(--texte);min-height:100vh}
+  .cache{display:none !important}
+  #ecran-login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+  .login-carte{background:var(--carte);width:100%;max-width:360px;border-radius:16px;padding:28px 24px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+  .login-titre{text-align:center;margin:0 0 4px;font-size:22px;font-weight:700;color:var(--vert-fonce)}
+  .login-sous{text-align:center;margin:0 0 22px;color:var(--gris);font-size:14px}
+  label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;color:var(--gris)}
+  input{width:100%;padding:14px;font-size:16px;border:1.5px solid var(--bord);border-radius:10px;background:#fff}
+  input:focus{outline:none;border-color:var(--vert)}
+  .btn{width:100%;margin-top:22px;padding:15px;font-size:16px;font-weight:700;border:none;border-radius:10px;background:var(--vert);color:#fff;cursor:pointer;transition:background .15s}
+  .btn:active{background:var(--vert-fonce)}
+  .btn:disabled{opacity:.6;cursor:default}
+  .erreur{margin-top:16px;padding:12px;border-radius:10px;background:#fdecec;color:var(--rouge);font-size:14px;text-align:center}
+  #ecran-app{min-height:100vh;display:flex;flex-direction:column}
+  .entete{background:var(--vert);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
+  .entete .qui{font-weight:700;font-size:15px}
+  .entete .deco{background:rgba(255,255,255,.2);border:none;color:#fff;padding:8px 12px;border-radius:8px;font-size:13px;cursor:pointer}
+  .onglets{display:flex;background:var(--carte);border-bottom:1px solid var(--bord)}
+  .onglet{flex:1;padding:14px;text-align:center;font-weight:600;font-size:15px;color:var(--gris);cursor:pointer;border-bottom:3px solid transparent}
+  .onglet.actif{color:var(--vert-fonce);border-bottom-color:var(--vert)}
+  .contenu{flex:1;padding:18px 16px}
+  .etat-bloc{text-align:center;padding:30px 16px}
+  .etat-attente .pastille{font-size:44px;margin-bottom:12px}
+  .etat-titre{font-size:20px;font-weight:700;margin:0 0 6px}
+  .etat-attente .etat-titre{color:var(--gris)}
+  .etat-match .etat-titre{color:var(--vert-fonce)}
+  .etat-tables{display:inline-block;margin-top:10px;background:#eff6ff;color:var(--vert-fonce);padding:8px 16px;border-radius:24px;font-weight:700;font-size:17px}
+  .etat-sous{color:var(--gris);font-size:14px;margin-top:12px}
+  .rencontre-entete{text-align:center;margin-bottom:14px}
+  .rencontre-entete .vs{font-size:16px;font-weight:700;color:var(--texte)}
+  .rencontre-entete .lieu{color:var(--gris);font-size:13px;margin-top:4px}
+  .match{background:var(--carte);border:1px solid var(--bord);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+  .match-haut{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .match-libelle{font-weight:700;font-size:13px;color:var(--vert-fonce);text-transform:uppercase;letter-spacing:.3px}
+  .match-statut{font-size:12px;font-weight:600;padding:3px 8px;border-radius:12px;display:flex;align-items:center;gap:5px}
+  .st-attente{background:#f3f4f6;color:var(--gris)}
+  .st-roue{background:#fff7e6;color:#b45309}
+  .st-fini{background:#dbeafe;color:#1e40af}
+  .st-litige{background:#fdecec;color:var(--rouge)}
+  .match-joueurs{display:flex;align-items:center;gap:8px;font-size:15px;margin-bottom:8px}
+  .match-joueurs .cote{flex:1}
+  .match-joueurs .cote.moi{font-weight:700}
+  .match-joueurs .cote.adv{text-align:right}
+  .match-joueurs .contre{color:var(--gris);font-size:12px;font-weight:600}
+  .match-score{text-align:center;font-size:16px;font-weight:700;color:var(--texte)}
+  .btn-score{width:100%;padding:10px;font-size:14px;font-weight:700;border:1.5px solid var(--vert);border-radius:8px;background:#fff;color:var(--vert-fonce);cursor:pointer}
+  .btn-score:active{background:#eff6ff}
+  .saisie{display:flex;gap:10px;align-items:flex-end;margin-top:6px}
+  .saisie .champ{flex:1}
+  .saisie .champ label{margin:0 0 4px;font-size:12px}
+  .saisie input{padding:12px;text-align:center;font-size:18px;font-weight:700}
+  .saisie .sep{padding-bottom:12px;color:var(--gris);font-weight:700}
+  .btn-envoyer{width:100%;margin-top:10px;padding:12px;font-size:15px;font-weight:700;border:none;border-radius:8px;background:var(--vert);color:#fff;cursor:pointer}
+  .btn-envoyer:active{background:var(--vert-fonce)}
+  .btn-annuler{width:100%;margin-top:6px;padding:9px;font-size:13px;border:none;border-radius:8px;background:#f3f4f6;color:var(--gris);cursor:pointer}
+  .roue{width:16px;height:16px;border:2px solid #f0c674;border-top-color:transparent;border-radius:50%;display:inline-block;animation:tourne .8s linear infinite}
+  @keyframes tourne{to{transform:rotate(360deg)}}
+  .placeholder{text-align:center;color:var(--gris);margin-top:40px;font-size:15px;line-height:1.6}
+  /* Pop-up */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:24px;z-index:50}
+  .pop{background:#fff;border-radius:16px;padding:24px;max-width:320px;width:100%;text-align:center}
+  .pop h3{margin:0 0 8px;font-size:19px}
+  .pop.rouge h3{color:var(--rouge)}
+  .pop p{color:var(--gris);font-size:15px;margin:0 0 20px;line-height:1.5}
+  .pop .gros{font-size:26px;font-weight:800;color:var(--texte);margin:10px 0 18px}
+  .pop-boutons{display:flex;gap:10px}
+  .pop-boutons button{flex:1;padding:13px;font-size:15px;font-weight:700;border:none;border-radius:10px;cursor:pointer}
+  .pop-oui{background:var(--vert);color:#fff}
+  .pop-non{background:#f3f4f6;color:var(--gris)}
+  .pop-ok{background:var(--rouge);color:#fff}
+  /* Écran de fin (plein écran) */
+  .fin{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center}
+  .fin.gagne{background:linear-gradient(160deg,#3b82f6,#2563eb);color:#fff}
+  .fin.perdu{background:linear-gradient(160deg,#37506b,#26384d);color:#fff}
+  .fin h1{font-size:26px;margin:0 0 6px;font-weight:800}
+  .fin .soustitre{font-size:16px;opacity:.92;margin:0 0 26px;line-height:1.5;max-width:320px}
+  .fin .stats{display:flex;gap:22px;margin-bottom:30px}
+  .fin .stat{background:rgba(255,255,255,.15);border-radius:14px;padding:16px 22px;min-width:96px}
+  .fin .stat .val{font-size:30px;font-weight:800}
+  .fin .stat .lbl{font-size:12px;opacity:.9;margin-top:2px}
+  .fin .btn-fin{background:#fff;color:var(--texte);border:none;border-radius:12px;padding:15px 40px;font-size:17px;font-weight:800;cursor:pointer}
+  /* Classement */
+  .clsmt{margin-top:22px}
+  .clsmt h2{font-size:16px;color:var(--texte);margin:0 0 10px;text-align:center}
+  .clsmt table{width:100%;border-collapse:collapse;background:var(--carte);border-radius:12px;overflow:hidden;border:1px solid var(--bord)}
+  .clsmt th,.clsmt td{padding:9px 8px;font-size:13px;text-align:center}
+  .clsmt th{background:#eff6ff;color:var(--vert-fonce);font-weight:700}
+  .clsmt td:nth-child(2){text-align:left;font-weight:600}
+  .clsmt tr.moi td{background:#eff6ff;font-weight:700}
+  .clsmt .rang{font-weight:800;color:var(--vert-fonce)}
+  /* Home */
+  .home-encadre{border-radius:16px;padding:22px 18px;text-align:center;margin-bottom:16px;border:1px solid var(--bord);background:var(--carte)}
+  .home-encadre.annonce{background:var(--bleu-doux);border-color:#bfdbfe}
+  .home-encadre .pastille{font-size:40px;margin-bottom:8px}
+  .home-titre{font-size:19px;font-weight:800;color:var(--vert-fonce);margin:0 0 8px}
+  .home-sous{font-size:14px;color:var(--gris);margin:6px 0 0;line-height:1.5}
+  .home-sous b{color:var(--texte)}
+  .home-position{text-align:center;font-size:15px;color:var(--texte);margin:0 0 16px}
+  .home-position b{color:var(--vert-fonce)}
+  .clsmt-aide{text-align:center;font-size:12px;color:var(--gris);margin:0 0 8px}
+  .clsmt tr{cursor:pointer}
+  .clsmt tr:active td{background:var(--bleu-doux)}
+  /* Composition (pop-up) */
+  .compo{text-align:left;margin:6px 0 16px}
+  .compo-ligne{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--bord);font-size:15px}
+  .compo-ligne:last-child{border-bottom:none}
+  .compo-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--bleu-doux);color:var(--vert-fonce);font-weight:700;font-size:13px}
+</style>
+</head>
+<body>
+<div id="ecran-login">
+  <div class="login-carte">
+    <h1 class="login-titre">Espace Capitaine</h1>
+    <p class="login-sous" id="login-sous">Tournoi</p>
+    <label for="in-id">Identifiant</label>
+    <input id="in-id" type="text" autocomplete="username" placeholder="capitaine01" autocapitalize="none">
+    <label for="in-mdp">Mot de passe</label>
+    <input id="in-mdp" type="password" autocomplete="current-password" placeholder="••••••">
+    <button id="btn-login" class="btn">Se connecter</button>
+    <div id="login-erreur" class="erreur cache"></div>
+  </div>
+</div>
+<div id="ecran-app" class="cache">
+  <div class="entete">
+    <span class="qui" id="app-qui">capitaine01</span>
+    <button class="deco" id="btn-deco">Déconnexion</button>
+  </div>
+  <div class="onglets">
+    <div class="onglet actif" data-onglet="etat">Home</div>
+    <div class="onglet" data-onglet="rencontre">Rencontre</div>
+  </div>
+  <div class="contenu">
+    <div id="vue-etat"></div>
+    <div id="vue-rencontre" class="cache"></div>
+  </div>
+</div>
+<div id="overlay" class="overlay cache"></div>
+<div id="ecran-fin" class="cache"></div>
+
+<script>
+"use strict";
+const API="api.php"; const PERIODE_MS=3000;
+const NOM_CLUB="CTT Brunoy";   // nom affiché sur l'écran de connexion et dans l'onglet
+let jeton=null, identifiant=null, equipeNumero=null, timer=null;
+let maRencontreId=null, monCote=null;
+let saisieEnCours=null;      // index du match en cours de saisie (formulaire ouvert)
+let envoisFiges={};          // { "idRencontre:index": true } -> saisie envoyée, figée
+let litigesVus={};           // pop-up litige déjà montrée pour ce match
+let dernierMien=null;        // dernier état de MON équipe reçu (pour redessiner sans réseau)
+let resultatAcquitte=null;   // idRencontre du dernier résultat déjà fermé par le capitaine
+let dernierClassement=[];    // dernier classement reçu (pour l'onglet État)
+const $=s=>document.querySelector(s);
+const montrer=el=>el.classList.remove("cache");
+const cacher =el=>el.classList.add("cache");
+function echapper(t){const d=document.createElement("div");d.textContent=t==null?"":String(t);return d.innerHTML;}
+function cleFige(id,idx){return id+":"+idx;}
+
+async function api(action,{methode="GET",corps=null,avecJeton=false}={}){
+  const opts={method:methode,headers:{}};
+  if(corps!==null){opts.headers["Content-Type"]="application/json";opts.body=JSON.stringify(corps);}
+  if(avecJeton&&jeton){opts.headers["X-Capitaine-Jeton"]=jeton;}
+  const rep=await fetch(`${API}?action=${action}`,opts);
+  let data; try{data=await rep.json();}catch{data={ok:false,erreur:"Réponse invalide."};}
+  return {http:rep.status,data};
+}
+
+/* ---- Connexion ---- */
+async function seConnecter(){
+  const id=$("#in-id").value.trim(),mdp=$("#in-mdp").value,err=$("#login-erreur"),btn=$("#btn-login");
+  cacher(err);
+  if(!id||!mdp){err.textContent="Entrez votre identifiant et votre mot de passe.";montrer(err);return;}
+  btn.disabled=true;btn.textContent="Connexion…";
+  try{
+    const {data}=await api("login",{methode:"POST",corps:{identifiant:id,mdp}});
+    if(data.ok){jeton=data.jeton;identifiant=data.identifiant;equipeNumero=data.equipe_numero;entrerDansApp();}
+    else{err.textContent=data.erreur||"Connexion impossible.";montrer(err);}
+  }catch{err.textContent="Serveur injoignable. Vérifiez votre connexion.";montrer(err);}
+  finally{btn.disabled=false;btn.textContent="Se connecter";}
+}
+function entrerDansApp(){
+  cacher($("#ecran-login"));montrer($("#ecran-app"));
+  $("#app-qui").textContent=identifiant+(equipeNumero!=null?"  ·  Équipe n°"+equipeNumero:"");
+  rafraichir();timer=setInterval(rafraichir,PERIODE_MS);
+}
+async function seDeconnecter(){
+  if(timer){clearInterval(timer);timer=null;}
+  try{await api("logout",{avecJeton:true});}catch{}
+  jeton=null;identifiant=null;equipeNumero=null;maRencontreId=null;monCote=null;
+  saisieEnCours=null;envoisFiges={};
+  cacher($("#ecran-app"));montrer($("#ecran-login"));$("#in-mdp").value="";
+}
+
+/* ---- Rafraîchissement ---- */
+async function rafraichir(){
+  // NE PAS rafraîchir pendant une saisie ouverte, une pop-up, ou l'écran de fin.
+  if(saisieEnCours!==null) return;
+  if(!$("#overlay").classList.contains("cache")) return;
+  if(!$("#ecran-fin").classList.contains("cache")) return;
+  try{
+    const {data}=await api("lire&cle=etat");
+    if(!data.ok||data.valeur==null){dernierMien=null;afficherAucunEtat();return;}
+    let etat; try{etat=JSON.parse(data.valeur);}catch{return;}
+    dernierClassement = etat.classement || [];
+    const mien=(etat.equipes||[]).find(e=>e.numero===equipeNumero);
+    if(mien&&mien.etat==="EN_MATCH"){
+      monCote=mien.cote;
+      if(maRencontreId!==mien.idRencontre){ maRencontreId=mien.idRencontre; envoisFiges={}; litigesVus={}; }
+      await chargerMesSaisies();
+      verifierLitiges(mien);
+    }
+    // Écran de fin : une rencontre vient de se terminer et pas encore acquittée.
+    if(mien && mien.resultat && mien.resultat.idRencontre !== resultatAcquitte){
+      dernierMien=mien;
+      afficherEcranFin(mien.resultat);
+      return; // on n'affiche pas le reste tant que l'écran de fin est là
+    }
+    dernierMien=mien||null;
+    redessiner();
+  }catch{}
+}
+
+/* Demande au serveur la liste de MES saisies pour cette rencontre, et
+   reconstruit envoisFiges. Ainsi "en attente" ne s'affiche que si MOI
+   j'ai saisi ce match — indépendamment de l'autre capitaine. */
+async function chargerMesSaisies(){
+  if(!maRencontreId||!monCote) return;
+  try{
+    const {data}=await api(`mes_saisies&id_rencontre=${encodeURIComponent(maRencontreId)}&cote=${monCote}`,{avecJeton:true});
+    if(data.ok&&Array.isArray(data.saisies)){
+      const nouveau={};
+      for(const s of data.saisies){ nouveau[cleFige(maRencontreId, s.index_match)]=true; }
+      envoisFiges=nouveau;
+    }
+  }catch{}
+}
+
+/* Redessine l'écran à partir du dernier état en mémoire, SANS appel réseau.
+   Utilisé par les actions locales (ouvrir/annuler saisie) pour ne pas
+   perdre ce que le capitaine est en train de taper. */
+function redessiner(){
+  rendreEtat(dernierMien);
+  rendreRencontre(dernierMien);
+}
+
+/* ---- Écran de fin de rencontre ---- */
+function afficherEcranFin(res){
+  const gagne = res.gagne;
+  const el = $("#ecran-fin");
+  el.className = gagne ? "fin gagne" : "fin perdu";
+  const titre = gagne ? "Félicitations !" : "Dommage !";
+  const sous = gagne
+    ? "Vous avez gagné votre rencontre. Beau match !"
+    : "Ce n'était pas loin. Relevez la tête, la prochaine est pour vous !";
+  el.innerHTML = `
+    <h1>${titre}</h1>
+    <p class="soustitre">${sous}</p>
+    <div class="stats">
+      <div class="stat"><div class="val">${res.mesMatchs} – ${res.sesMatchs}</div><div class="lbl">Matchs</div></div>
+      <div class="stat"><div class="val">${res.mesPoints}</div><div class="lbl">Points marqués</div></div>
+    </div>
+    <button class="btn-fin" id="btn-fin">Continuer</button>`;
+  montrer(el);
+  $("#btn-fin").addEventListener("click", ()=>{
+    resultatAcquitte = res.idRencontre;   // on n'affichera plus ce résultat
+    cacher(el);
+    rafraichir();                          // repart sur l'écran normal (en attente)
+  });
+}
+function afficherAucunEtat(){
+  $("#vue-etat").innerHTML=
+    `<div class="home-encadre attente"><div class="pastille">⏳</div>
+       <p class="home-titre">En attente d'une rencontre</p>
+       <p class="home-sous">Le tournoi n'a pas encore publié d'état.</p></div>`
+    + blocPosition() + blocClassement();
+  $("#vue-rencontre").innerHTML=`<p class="placeholder">Aucune rencontre en cours.</p>`;
+}
+
+function rendreEtat(mien){
+  const vue=$("#vue-etat");
+  if(!mien){afficherAucunEtat();return;}
+  let encadre;
+  if(mien.etat==="EN_MATCH"){
+    // Encadré = ANNONCE de la rencontre (nouveau texte demandé).
+    const tables = mien.table2!=null
+      ? `les tables ${echapper(mien.table1)} et ${echapper(mien.table2)}`
+      : `la table ${echapper(mien.table1)}`;
+    const compo = composition(mien.numeroAdversaire);
+    const compoTxt = compo.length ? compo.map(echapper).join(", ") : "—";
+    encadre =
+      `<div class="home-encadre annonce">
+         <p class="home-titre">Nouvelle rencontre sur ${tables}</p>
+         <p class="home-sous">Vous allez affronter <b>l'équipe n°${echapper(mien.numeroAdversaire)}</b>, composée de : ${compoTxt}.</p>
+         <p class="home-sous">Rendez-vous à votre table et saisissez les scores dans l'onglet « Rencontre ». Bonne chance à vous !</p>
+       </div>`;
+  }else{
+    encadre =
+      `<div class="home-encadre attente"><div class="pastille">⏳</div>
+         <p class="home-titre">En attente d'une rencontre</p>
+         <p class="home-sous">Aucune rencontre en cours pour votre équipe.</p></div>`;
+  }
+  vue.innerHTML = encadre + blocPosition() + blocClassement();
+}
+
+/* Ligne "Vous êtes actuellement à la Xe place". */
+function blocPosition(){
+  const moi = (dernierClassement||[]).find(c=>c.numeroEquipe===equipeNumero);
+  if(!moi) return "";
+  const rang = moi.rang;
+  const suff = (rang===1) ? "re" : "e";
+  return `<p class="home-position">Vous êtes actuellement à la <b>${rang}${suff} place</b>.</p>`;
+}
+
+/* Récupère la composition (liste "Prénom Nom") d'une équipe par son numéro. */
+function composition(numeroEquipe){
+  const l = (dernierClassement||[]).find(c=>c.numeroEquipe===numeroEquipe);
+  return (l && l.joueurs) ? l.joueurs : [];
+}
+
+/* Tableau du classement, chaque ligne cliquable -> pop-up composition. */
+function blocClassement(){
+  if(!dernierClassement || dernierClassement.length===0) return "";
+  let lignes="";
+  for(const c of dernierClassement){
+    const moi = (c.numeroEquipe===equipeNumero) ? ' class="moi"' : '';
+    lignes += `<tr${moi} onclick="voirCompo(${c.numeroEquipe})">`
+      + `<td class="rang">${c.rang}</td>`
+      + `<td>Équipe n°${echapper(c.numeroEquipe)}</td>`
+      + `<td>${c.rencontresGagnees}</td><td>${c.matchsGagnes}</td><td>${c.pointsPour}</td></tr>`;
+  }
+  return `<div class="clsmt"><h2>Classement</h2>
+    <p class="clsmt-aide">Touchez une équipe pour voir sa composition.</p>
+    <table>
+      <thead><tr><th>#</th><th>Équipe</th><th>Renc.</th><th>Matchs</th><th>Pts</th></tr></thead>
+      <tbody>${lignes}</tbody></table></div>`;
+}
+
+/* Pop-up composition d'une équipe. */
+function voirCompo(numeroEquipe){
+  const joueurs = composition(numeroEquipe);
+  const liste = joueurs.length
+    ? joueurs.map((n,i)=>`<div class="compo-ligne"><span class="compo-num">${i+1}</span> ${echapper(n)}</div>`).join("")
+    : `<p class="home-sous">Composition non disponible.</p>`;
+  ouvrirPop({
+    titre:"Équipe n°"+numeroEquipe,
+    htmlCorps:`<div class="compo">${liste}</div>`,
+    boutons:[{label:"Fermer",classe:"pop-non",action:fermerPop}]
+  });
+}
+
+/* ---- Onglet Rencontre + saisie ---- */
+function rendreRencontre(mien){
+  const vue=$("#vue-rencontre");
+  if(!mien||mien.etat!=="EN_MATCH"){vue.innerHTML=`<p class="placeholder">Vous n'êtes pas en match pour l'instant.</p>`;return;}
+  const suisA = (mien.cote==="A");
+  const tables=mien.table2!=null?`Tables ${mien.table1} et ${mien.table2}`:`Table ${mien.table1}`;
+  let html=`<div class="rencontre-entete"><div class="vs">Votre équipe (n°${echapper(equipeNumero)}) &nbsp;vs&nbsp; ${echapper(mien.nomAdversaire)}</div><div class="lieu">${echapper(tables)}</div></div>`;
+
+  for(const m of (mien.matchs||[])){
+    // "mes joueurs" = côté A si je suis A, sinon côté B
+    const mesJoueurs=(suisA?m.coteA:m.coteB).map(j=>echapper(j.nom)).join(" / ");
+    const advJoueurs=(suisA?m.coteB:m.coteA).map(j=>echapper(j.nom)).join(" / ");
+    const fige = envoisFiges[cleFige(maRencontreId,m.index)];
+    const statut = m.statutSaisie;
+
+    // Détermine l'affichage du badge de statut.
+    // IMPORTANT : la roue "En attente" ne s'affiche que si MOI j'ai saisi
+    // (fige). Le statut ATTENTE_AUTRE venu du serveur est global (il ne dit
+    // pas QUI a saisi), donc on ne s'en sert PAS pour bloquer ce capitaine.
+    let badge;
+    if(m.termine||statut==="ACCORD"){ badge=`<span class="match-statut st-fini">✓ Validé</span>`; }
+    else if(statut==="LITIGE"){ badge=`<span class="match-statut st-litige">✗ Litige</span>`; }
+    else if(fige){ badge=`<span class="match-statut st-roue"><span class="roue"></span> En attente</span>`; }
+    else { badge=`<span class="match-statut st-attente">À jouer</span>`; }
+
+    html+=`<div class="match" data-idx="${m.index}">
+      <div class="match-haut"><span class="match-libelle">${echapper(m.libelle)}</span>${badge}</div>
+      <div class="match-joueurs">
+        <span class="cote moi">${mesJoueurs||'—'}</span>
+        <span class="contre">vs</span>
+        <span class="cote adv">${advJoueurs||'—'}</span>
+      </div>`;
+
+    if(m.termine||statut==="ACCORD"){
+      // score officiel, du point de vue "moi / adversaire".
+      // (Si les scores ne sont pas encore publiés par le PC, on n'affiche
+      //  pas de tirets vides : le score arrivera au prochain cycle.)
+      const monScore = suisA?m.scoreA:m.scoreB;
+      const advScore = suisA?m.scoreB:m.scoreA;
+      if(monScore!=null && advScore!=null){
+        html+=`<div class="match-score">${echapper(monScore)} – ${echapper(advScore)}</div>`;
+      }else{
+        html+=`<div class="etat-sous" style="margin-top:0;text-align:center">Score validé ✓</div>`;
+      }
+    }else if(statut==="LITIGE"){
+      html+=`<div class="match-score" style="color:var(--rouge);font-size:14px">Désaccord — voyez le juge-arbitre</div>`;
+    }else if(fige){
+      html+=`<div class="etat-sous" style="margin-top:0;text-align:center">Score envoyé, en attente de l'autre capitaine…</div>`;
+    }else if(saisieEnCours===m.index){
+      html+=`<div class="saisie">
+        <div class="champ"><label>Votre score</label><input type="number" inputmode="numeric" min="0" id="sc-moi" value=""></div>
+        <span class="sep">–</span>
+        <div class="champ"><label>Adversaire</label><input type="number" inputmode="numeric" min="0" id="sc-adv" value=""></div>
+      </div>
+      <button class="btn-envoyer" onclick="envoyer(${m.index})">Envoyer</button>
+      <button class="btn-annuler" onclick="annulerSaisie()">Annuler</button>`;
+    }else{
+      html+=`<button class="btn-score" onclick="ouvrirSaisie(${m.index})">Score</button>`;
+    }
+    html+=`</div>`;
+  }
+  vue.innerHTML=html;
+}
+
+function ouvrirSaisie(idx){ saisieEnCours=idx; redessiner(); }
+function annulerSaisie(){ saisieEnCours=null; redessiner(); }
+
+function envoyer(idx){
+  const moi=parseInt($("#sc-moi").value,10);
+  const adv=parseInt($("#sc-adv").value,10);
+  if(Number.isNaN(moi)||Number.isNaN(adv)){ alert("Entrez les deux scores."); return; }
+  // Confirmation "Confirmer X-Y ?"
+  ouvrirPop({
+    titre:"Confirmer le score ?",
+    gros:`${moi} – ${adv}`,
+    sousTitre:"Vérifiez avant d'envoyer. Une fois envoyé, vous ne pourrez plus modifier.",
+    boutons:[
+      {label:"Corriger",classe:"pop-non",action:fermerPop},
+      {label:"Confirmer",classe:"pop-oui",action:()=>{fermerPop();faireEnvoi(idx,moi,adv);}}
+    ]
+  });
+}
+
+async function faireEnvoi(idx,moi,adv){
+  // Filet de sécurité : si monCote n'est pas défini, le déduire du dernier état.
+  if(monCote!=="A"&&monCote!=="B"&&dernierMien&&dernierMien.cote){ monCote=dernierMien.cote; }
+  // Convertit "moi / adversaire" -> "score_a / score_b" selon mon côté
+  const suisA = (monCote==="A");
+  const score_a = suisA?moi:adv;
+  const score_b = suisA?adv:moi;
+  // Fige immédiatement (roue) pour un retour instantané
+  envoisFiges[cleFige(maRencontreId,idx)]=true;
+  saisieEnCours=null;
+  redessiner();
+  try{
+    const {data}=await api("saisir",{methode:"POST",avecJeton:true,corps:{
+      id_rencontre:maRencontreId, index_match:idx, score_a, score_b, cote:monCote
+    }});
+    if(!data.ok){
+      // échec : on défige pour permettre de recommencer
+      delete envoisFiges[cleFige(maRencontreId,idx)];
+      alert(data.erreur||"Envoi impossible.");
+      redessiner();
+    }
+  }catch{
+    delete envoisFiges[cleFige(maRencontreId,idx)];
+    alert("Serveur injoignable, réessayez.");
+    redessiner();
+  }
+}
+
+/* Détecte le passage en litige pour afficher une pop-up rouge une seule fois */
+function verifierLitiges(mien){
+  for(const m of (mien.matchs||[])){
+    if(m.statutSaisie==="LITIGE" && !litigesVus[cleFige(maRencontreId,m.index)]){
+      litigesVus[cleFige(maRencontreId,m.index)]=true;
+      ouvrirPop({
+        rouge:true,
+        titre:"Désaccord sur le score",
+        sousTitre:`Match « ${echapper(m.libelle)} » : votre saisie et celle de l'autre capitaine diffèrent. Rapprochez-vous du juge-arbitre pour trancher.`,
+        boutons:[{label:"Compris",classe:"pop-ok",action:fermerPop}]
+      });
+    }
+  }
+}
+
+/* ---- Pop-up générique ---- */
+function ouvrirPop({titre,sousTitre,gros,htmlCorps,boutons,rouge}){
+  const ov=$("#overlay");
+  ov.innerHTML=`<div class="pop ${rouge?'rouge':''}">
+    <h3>${echapper(titre)}</h3>
+    ${gros?`<div class="gros">${echapper(gros)}</div>`:''}
+    ${htmlCorps?htmlCorps:''}
+    ${sousTitre?`<p>${sousTitre}</p>`:''}
+    <div class="pop-boutons"></div></div>`;
+  const cont=ov.querySelector(".pop-boutons");
+  boutons.forEach(b=>{const el=document.createElement("button");el.className=b.classe;el.textContent=b.label;el.onclick=b.action;cont.appendChild(el);});
+  montrer(ov);
+}
+function fermerPop(){cacher($("#overlay"));$("#overlay").innerHTML="";}
+
+/* ---- Onglets ---- */
+function changerOnglet(nom){
+  document.querySelectorAll(".onglet").forEach(o=>o.classList.toggle("actif",o.dataset.onglet===nom));
+  $("#vue-etat").classList.toggle("cache",nom!=="etat");
+  $("#vue-rencontre").classList.toggle("cache",nom!=="rencontre");
+}
+$("#btn-login").addEventListener("click",seConnecter);
+$("#in-mdp").addEventListener("keydown",e=>{if(e.key==="Enter")seConnecter();});
+$("#btn-deco").addEventListener("click",seDeconnecter);
+document.querySelectorAll(".onglet").forEach(o=>o.addEventListener("click",()=>changerOnglet(o.dataset.onglet)));
+/* Nom du club (titre de l'onglet et écran de connexion). */
+if(NOM_CLUB){document.title="Capitaine — "+NOM_CLUB;$("#login-sous").textContent="Tournoi "+NOM_CLUB;}
+</script>
+</body>
+</html>
